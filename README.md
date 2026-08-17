@@ -180,7 +180,7 @@ email vote instead:
 | --- | --- | --- |
 | Registrar unlock | required | not required |
 | Auth / EPP code | required | **not used** |
-| 60-day lock after registration or transfer | yes | **none** |
+| 60-day lock after registration or transfer | yes | disputed — see below |
 | How it's authorised | auth code at the gaining registrar | registry emails the WHOIS contacts an approve/deny link |
 | Timeline | up to 5 days, or approve to speed it up | immediate on approval; **fails** after 5 days with no reply |
 
@@ -202,9 +202,33 @@ Two consequences worth taking seriously:
   `you@yourdomain.co.za` and mail breaks during the DNS migration, you can't
   approve the transfer. `gd preflight` flags this explicitly.
 
-The one exception: if the gaining registrar is **Hexonet (1API GmbH)** or one of
-their resellers, they do want an auth code, which you have to request from
-GoDaddy support — it isn't in the self-service UI.
+### The 60-day question
+
+Sources genuinely conflict here, so treat it as unresolved rather than settled.
+Registry-side documentation (ZARC, and registrars publishing .ZA policy such as
+OpenSRS) states there is **no** 60-day lock after registration or transfer for
+`.za`. But some registrars' own knowledge bases — including Domains.co.za's —
+state a domain must have been registered for at least 60 days before they will
+accept a transfer in.
+
+Two separate things are probably being conflated: ICANN's 60-day gTLD lock,
+which does not apply to `.za`, and individual registrars' own intake policies,
+which do. Separately, Domains.co.za launched an **optional** registrar-level
+Domain Transfer Lock for `.co.za` in April 2025 — an opt-in security feature,
+not a registry-imposed waiting period.
+
+Practical takeaway: if the domain was registered, transferred, or had its
+registrant contact changed in the last 60 days, confirm with the *gaining*
+registrar before relying on it. Otherwise the question is moot. `gd preflight`
+does not apply an ICANN-style 60-day block to `.za`, but it still respects
+GoDaddy's own `transferAwayEligibleAt` when that field is set.
+
+### Exceptions
+
+If the gaining registrar is **Hexonet (1API GmbH)** or one of their resellers,
+they do want an auth code, which you have to request from GoDaddy support — it
+isn't in the self-service UI. Registrars that are directly ZACR-accredited
+(Domains.co.za, xneelo, Afrihost) go through the email vote with no code.
 
 Also check your destination registrar actually supports `.za` before you start.
 Many international registrars don't. Cloudflare Registrar is the notable one —
