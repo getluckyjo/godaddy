@@ -31,7 +31,13 @@ OTE_HOST = "https://api.ote-godaddy.com"
 MIN_INTERVAL = 1.1
 
 # ICANN locks that block a transfer away from the current registrar.
+# gTLDs only — ccTLDs set their own policy (see ZA_SUFFIXES).
 ICANN_LOCK_DAYS = 60
+
+# .za is run by ZACR, outside ICANN's gTLD transfer policy: no registrar
+# unlock, no auth code, no 60-day lock. Transfers run on a registry email
+# vote to the WHOIS contacts instead.
+ZA_SUFFIXES = (".co.za", ".net.za", ".org.za", ".web.za", ".za")
 
 
 class ApiError(Exception):
@@ -329,21 +335,37 @@ def cmd_show(client, args):
     return 0
 
 
+def is_za(domain):
+    name = (domain or "").lower().rstrip(".")
+    return name.endswith(ZA_SUFFIXES)
+
+
 def evaluate(detail):
     """Return (verdict, blockers, warnings) for transferring this domain away.
 
     Blockers stop a transfer outright. Warnings are things that will bite
     during or after the transfer but do not prevent initiating it.
+
+    .za domains follow ZACR policy rather than ICANN's, so several gTLD
+    blockers do not apply to them — see the README.
     """
     blockers = []
     warnings = []
+    za = is_za(detail.get("domain"))
 
     status = detail.get("status")
     if status and status != "ACTIVE":
         blockers.append(f"status is {status}, not ACTIVE")
 
     if detail.get("locked"):
-        blockers.append("registrar lock is ON — unlock it (`gd unlock <domain>`)")
+        if za:
+            # ZACR transfers do not consult the registrar lock.
+            warnings.append(
+                "registrar lock is ON, but .za transfers do not require an "
+                "unlock — harmless to leave, `gd unlock` if you prefer"
+            )
+        else:
+            blockers.append("registrar lock is ON — unlock it (`gd unlock <domain>`)")
 
     if detail.get("transferProtected"):
         blockers.append("transferProtected is set (GoDaddy transfer lock)")
@@ -361,8 +383,9 @@ def evaluate(detail):
                 f"not transfer-eligible until {eligible_at:%Y-%m-%d} "
                 f"({remaining} day(s) away)"
             )
-    else:
-        # Fall back to the ICANN 60-day-after-registration rule.
+    elif not za:
+        # Fall back to the ICANN 60-day-after-registration rule. ZACR imposes
+        # no equivalent lock, so this check would be wrong for .za.
         created = parse_ts(detail.get("createdAt"))
         if created:
             age = (datetime.now(timezone.utc) - created).days
@@ -392,7 +415,28 @@ def evaluate(detail):
 
     registrant = detail.get("contactRegistrant") or {}
     email = registrant.get("email")
-    if email:
+    if za:
+        # The whole transfer hinges on this address being reachable.
+        warnings.append(
+            "ZACR transfer: no auth code. The registry emails an approve/deny "
+            "link to the WHOIS contacts and the transfer fails after 5 days "
+            "with no reply — confirm these addresses are live FIRST"
+        )
+        if email:
+            warnings.append(f"vote email goes to registrant: {email}")
+            domain_name = (detail.get("domain") or "").lower()
+            if domain_name and email.lower().endswith("@" + domain_name):
+                warnings.append(
+                    f"WARNING: registrant email is at {domain_name} itself — if "
+                    "mail breaks during the DNS move you cannot approve the "
+                    "transfer; change it to an off-domain address first"
+                )
+        else:
+            warnings.append(
+                "no registrant email visible on this key — check it in the UI "
+                "before starting; a dead address silently fails the transfer"
+            )
+    elif email:
         warnings.append(f"auth code will be emailed to registrant: {email}")
     else:
         warnings.append("no registrant email visible on this key — verify in the UI")

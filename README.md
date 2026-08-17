@@ -14,6 +14,10 @@ gd authcode a.com            # try the API, else print the UI steps
 gd records a.com             # DNS records, so you can rebuild the zone
 ```
 
+> **Transferring a `.co.za`?** Skip the unlock and auth-code steps entirely —
+> `.za` runs on a registry email vote instead. See
+> [.co.za and other .za domains](#coza-and-other-za-domains--a-different-process).
+
 ## Setup
 
 **1. Create an API key** at <https://developer.godaddy.com/keys>.
@@ -165,6 +169,52 @@ dig +short a.com NS           # nameservers answering from the new provider
 Compare live DNS against `./backup/a.com.json` record by record before you
 consider it done.
 
+## .co.za and other .za domains — a different process
+
+**Everything in the runbook above about unlocking and auth codes does not apply
+to `.co.za`, `.net.za`, or `.org.za`.** These are run by ZACR under South
+African policy, not ICANN gTLD policy, and the transfer works on a registry
+email vote instead:
+
+| | gTLD (`.com`) | `.za` |
+| --- | --- | --- |
+| Registrar unlock | required | not required |
+| Auth / EPP code | required | **not used** |
+| 60-day lock after registration or transfer | yes | **none** |
+| How it's authorised | auth code at the gaining registrar | registry emails the WHOIS contacts an approve/deny link |
+| Timeline | up to 5 days, or approve to speed it up | immediate on approval; **fails** after 5 days with no reply |
+
+The process:
+
+1. Start the transfer at the **gaining registrar**. Nothing to prepare at
+   GoDaddy — no unlock, no code.
+2. ZACR emails an approve/deny link to the domain's WHOIS contacts (owner,
+   admin, tech, billing).
+3. One **APPROVE** processes the transfer immediately. Any **DENY** fails it.
+   **No response fails it after 5 days.**
+
+Two consequences worth taking seriously:
+
+- **The contact email addresses are the whole mechanism.** A stale address means
+  the vote email goes nowhere and the transfer silently fails after 5 days.
+  Check and fix them in GoDaddy *before* starting.
+- **Never leave the registrant email on the domain being moved.** If it's
+  `you@yourdomain.co.za` and mail breaks during the DNS migration, you can't
+  approve the transfer. `gd preflight` flags this explicitly.
+
+The one exception: if the gaining registrar is **Hexonet (1API GmbH)** or one of
+their resellers, they do want an auth code, which you have to request from
+GoDaddy support — it isn't in the self-service UI.
+
+Also check your destination registrar actually supports `.za` before you start.
+Many international registrars don't. Cloudflare Registrar is the notable one —
+`.co.za` is not on its supported list and the feature request has sat open since
+2024, so plan on a ZACR-accredited or South African registrar instead.
+
+`gd preflight` applies all of this automatically for any `.za` domain: the
+registrar lock drops to a warning, the ICANN 60-day check is skipped, and the
+email-vote requirements are surfaced instead.
+
 ## Command reference
 
 | Command | Purpose |
@@ -172,7 +222,7 @@ consider it done.
 | `gd auth` | verify credentials, report a 401/403 with likely causes |
 | `gd list [--status ACTIVE] [--json]` | domains with status, lock, privacy, expiry |
 | `gd show <domain>...` | raw API detail as JSON |
-| `gd preflight [<domain>...]` | transfer-out readiness; defaults to all domains |
+| `gd preflight [<domain>...]` | transfer-out readiness (gTLD and `.za` rules); all domains by default |
 | `gd unlock <domain>...` | registrar lock off (confirms, then verifies) |
 | `gd lock <domain>...` | registrar lock on |
 | `gd authcode <domain>...` | read the auth code if exposed, else UI steps |
@@ -192,7 +242,7 @@ and a 429 is retried once after a pause.
 python3 test_gd.py
 ```
 
-25 tests. The eligibility logic is tested directly against synthetic API
+36 tests. The eligibility logic is tested directly against synthetic API
 payloads, and the HTTP layer (auth header, marker pagination, `PATCH`, error
 mapping, backup output) runs against a local stub server — so the suite needs
 no credentials and no network.

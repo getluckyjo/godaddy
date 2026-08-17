@@ -132,6 +132,90 @@ class TestEvaluate(unittest.TestCase):
         self.assertIn(verdict, ("READY", "BLOCKED"))
 
 
+class TestZaDomains(unittest.TestCase):
+    """.za follows ZACR policy: no unlock, no auth code, no 60-day lock."""
+
+    def base_za(self, domain="example.co.za", **overrides):
+        detail = {
+            "domain": domain,
+            "status": "ACTIVE",
+            "locked": False,
+            "privacy": False,
+            "createdAt": iso(-400),
+            "expires": iso(200),
+            "contactRegistrant": {"email": "owner@elsewhere.com"},
+        }
+        detail.update(overrides)
+        return detail
+
+    def test_suffix_detection(self):
+        for name in ("a.co.za", "a.net.za", "a.org.za", "A.CO.ZA", "a.co.za."):
+            self.assertTrue(gd.is_za(name), name)
+        for name in ("a.com", "a.za.com", "coza.com", ""):
+            self.assertFalse(gd.is_za(name), name)
+
+    def test_lock_is_a_warning_not_a_blocker(self):
+        verdict, blockers, warnings = gd.evaluate(self.base_za(locked=True))
+        self.assertEqual(verdict, "READY")
+        self.assertEqual(blockers, [])
+        self.assertTrue(any("do not require an unlock" in w for w in warnings))
+
+    def test_lock_still_blocks_a_gtld(self):
+        """Guard against the .za carve-out leaking into gTLD handling."""
+        _, blockers, _ = gd.evaluate(
+            {"domain": "example.com", "status": "ACTIVE", "locked": True}
+        )
+        self.assertTrue(any("unlock it" in b for b in blockers))
+
+    def test_no_icann_lock_for_new_za_registration(self):
+        detail = self.base_za(createdAt=iso(-3))
+        verdict, blockers, _ = gd.evaluate(detail)
+        self.assertEqual(verdict, "READY")
+        self.assertEqual(blockers, [])
+
+    def test_icann_lock_still_applies_to_new_gtld(self):
+        _, blockers, _ = gd.evaluate(
+            {"domain": "example.com", "status": "ACTIVE", "createdAt": iso(-3)}
+        )
+        self.assertTrue(any("ICANN" in b for b in blockers))
+
+    def test_explains_the_email_vote(self):
+        _, _, warnings = gd.evaluate(self.base_za())
+        self.assertTrue(any("no auth code" in w for w in warnings))
+        self.assertTrue(any("5 days" in w for w in warnings))
+
+    def test_flags_registrant_email_on_the_domain_itself(self):
+        detail = self.base_za(
+            contactRegistrant={"email": "admin@example.co.za"}
+        )
+        _, _, warnings = gd.evaluate(detail)
+        self.assertTrue(any("at example.co.za itself" in w for w in warnings))
+
+    def test_off_domain_registrant_email_not_flagged(self):
+        _, _, warnings = gd.evaluate(self.base_za())
+        self.assertFalse(any("itself" in w for w in warnings))
+
+    def test_missing_registrant_email_warns(self):
+        detail = self.base_za()
+        detail.pop("contactRegistrant")
+        _, _, warnings = gd.evaluate(detail)
+        self.assertTrue(any("silently fails" in w for w in warnings))
+
+    def test_real_blockers_still_apply_to_za(self):
+        _, blockers, _ = gd.evaluate(
+            self.base_za(status="PENDING_DELETE", expires=iso(-5), holdRegistrar=True)
+        )
+        self.assertTrue(any("PENDING_DELETE" in b for b in blockers))
+        self.assertTrue(any("expired" in b for b in blockers))
+        self.assertTrue(any("HOLD" in b for b in blockers))
+
+    def test_godaddy_eligibility_date_still_respected_for_za(self):
+        _, blockers, _ = gd.evaluate(
+            self.base_za(transferAwayEligibleAt=iso(20))
+        )
+        self.assertTrue(any("transfer-eligible" in b for b in blockers))
+
+
 # ---------------------------------------------------------------------------
 # stub server, to exercise the HTTP layer
 # ---------------------------------------------------------------------------
