@@ -1,0 +1,11 @@
+# credentials — never commit these
+.env
+credentials
+
+# backups contain registrant contact details and full DNS zones
+godaddy-backup/
+backup/
+*.records.json
+
+__pycache__/
+*.pyc
